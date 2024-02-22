@@ -1,0 +1,53 @@
+                                 +--------------+
+                                 | config.yaml  |
+                                 | config files |
+                                 +--------------+
+                                        |
+                                        V
+                                  +--------+
+                                  | main.rs|
+                                  | Entry  |
+                                  | point  |
+                                  +--------+
+                                        |
+                                        V
+                     +-----------------------------+
+                     |             CLI             |
+                     | Command-Line Interface      |
+                     +-----------------------------+
+                                        |
+                                        V
+             +-------------------------------+
+             |        Module: Client         |
+             |   Handles interaction with    |
+             |   different AI service APIs   |
+             +-------------------------------+
+               |        |       |       |
+               V        V       V       V
+    +-------------------------+   +-------------------------------+
+    |       azure_openai.rs   |   |       qianwen.rs              |
+    |       ernie.rs          |   |       localai.rs               |
+    |       gemini.rs         |   |       ollama.rs                |
+    |       openai.rs         |   |       common.rs                |
+    +-------------------------+   +-------------------------------+
+               |                        |
+               V                        V
+    +----------------------+   +----------------------+
+    |   Module: Config    |   |   Module: Utils      |
+    |   Handles config    |   |   Utility functions  |
+    |   management        |   |   and helpers        |
+    +----------------------+   +----------------------+
+    |    input.rs         |   |   abort_signal.rs    |
+    |    role.rs          |   |   clipboard.rs       |
+    |    session.rs       |   |   tiktoken.rs        |
+    +----------------------+   +----------------------+
+               |                        |
+               V                        V
+    +----------------------+   +----------------------+
+    |    Module: Render    |   |    Module: REPL      |
+    |    Handles output    |   |    Read-Eval-Print   |
+    |    rendering         |   |    Loop              |
+    +----------------------+   +----------------------+
+    |   markdown.rs        |   |   completer.rs       |
+    |   stream.rs          |   |   highlighter.rs    |
+    +----------------------+   +----------------------+

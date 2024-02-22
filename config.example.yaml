@@ -28,7 +28,7 @@ clients:
 
   # See https://ai.google.dev/docs
   - type: gemini
-    api_key: AIzaSyDc4pF6klpWViH7RY_GvavUXjOmS1XCCOI
+    api_key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
   # See https://github.com/go-skynet/LocalAI
   - type: localai
