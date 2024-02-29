@@ -29,7 +29,7 @@ use std::{
 };
 use syntect::highlighting::ThemeSet;
 
-/// Monokai Extended
+/// Constants for Monokai Extended
 const DARK_THEME: &[u8] = include_bytes!("../../assets/monokai-extended.theme.bin");
 const LIGHT_THEME: &[u8] = include_bytes!("../../assets/monokai-extended-light.theme.bin");
 
@@ -90,6 +90,7 @@ pub struct Config {
     pub temperature: Option<f64>,
 }
 
+// here, we define the implementation of the Default trait for Config
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -112,22 +113,29 @@ impl Default for Config {
             role: None,
             session: None,
             model: Default::default(),
-            last_message: None,
             temperature: None,
+            last_message: None,
         }
     }
 }
 
+// This defines a type alias GlobalConfig for a thread-safe, shared, mutable reference to a Config struct,
+// wrapped in Arc (atomic reference counting) and RwLock (read-write lock)
+// This allows multiple threads to access and modify the configuration concurrently
 pub type GlobalConfig = Arc<RwLock<Config>>;
 
 impl Config {
+    // this function is responsible for initializing the application's configuration
     pub fn init(is_interactive: bool) -> Result<Self> {
+        // getting the config_path using the config_file function from the the configuration
         let config_path = Self::config_file()?;
 
+        // The openAI api key is retrieved from the environment variables
         let api_key = env::var("OPENAI_API_KEY").ok();
 
         let exist_config_path = config_path.exists();
         if is_interactive && api_key.is_none() && !exist_config_path {
+            // we prompt to create a configuration file using the create_config_file method
             create_config_file(&config_path)?;
         }
         let mut config = if api_key.is_some() && !exist_config_path {
@@ -136,7 +144,7 @@ impl Config {
             Self::load_config(&config_path)?
         };
 
-        // Compatible with old configuration files
+        // making compatible with old configuration files
         if exist_config_path {
             config.compat_old_config(&config_path)?;
         }
@@ -145,48 +153,66 @@ impl Config {
             config.set_wrap(&wrap)?;
         }
 
+        // setting the temperature to the default temperture in the configuration
         config.temperature = config.default_temperature;
 
         config.load_roles()?;
 
+        // setting upt the configurations of the model by calling some setter functions
         config.setup_model()?;
         config.setup_highlight();
         config.setup_light_theme()?;
 
         setup_logger()?;
 
+        // returning the configurations wrapped in a Result
         Ok(config)
     }
 
+    // function to be called at the start of the application
     pub fn onstart(&mut self) -> Result<()> {
+        // checking the prelude configuration
         let prelude = self.prelude.clone();
         let err_msg = || format!("Invalid prelude '{}", prelude);
         match prelude.split_once(':') {
+            // if the prelude contains "role"
             Some(("role", name)) => {
+                // we set the role if it's not already set
                 if self.role.is_none() && self.session.is_none() {
                     self.set_role(name).with_context(err_msg)?;
                 }
             }
+            // If the prelude contains "session"
             Some(("session", name)) => {
+                // we start a new session if it's not already started
                 if self.session.is_none() {
                     self.start_session(Some(name)).with_context(err_msg)?;
                 }
             }
+            // If the prelude is invalid
             Some(_) => {
+                // we return an error
                 bail!("{}", err_msg())
             }
             None => {}
         }
+        // return if successful
         Ok(())
     }
 
+    // function to retrieve a role by its name
     pub fn retrieve_role(&self, name: &str) -> Result<Role> {
         self.roles
+            // iterates through the list of roles stored in the configuration
             .iter()
+            // and finds the one with a matching name
             .find(|v| v.match_name(name))
             .map(|v| {
+                // when matching role is found, we clone it
                 let mut role = v.clone();
+                // we complete its prompt arguments with the given name
                 role.complete_prompt_args(name);
+                // and return it
                 role
             })
             .ok_or_else(|| anyhow!("Unknown role `{name}`"))
@@ -204,27 +230,36 @@ impl Config {
         Ok(path)
     }
 
+    // this function returns the directory path where the application's configuration files are stored
     pub fn local_path(name: &str) -> Result<PathBuf> {
         let mut path = Self::config_dir()?;
         path.push(name);
         Ok(path)
     }
 
+    // this function is responsible for saving a message to a file or a session
     pub fn save_message(&mut self, input: Input, output: &str) -> Result<()> {
+        // firstly, we update the last_message field with the input and output provided
         self.last_message = Some((input.clone(), output.to_string()));
 
+        // if the dry_run flag is set
         if self.dry_run {
+            // we return early without saving anything
             return Ok(());
         }
 
+        // If a session is active
         if let Some(session) = self.session.as_mut() {
+            //  we add the message to the session and return
             session.add_message(&input, output)?;
             return Ok(());
         }
 
+        // saving is disabled (save is false), it returns early without saving
         if !self.save {
             return Ok(());
         }
+        // else we write it in the file
         let mut file = self.open_message_file()?;
         if output.is_empty() || !self.save {
             return Ok(());
@@ -246,10 +281,12 @@ impl Config {
             .with_context(|| "Failed to save message")
     }
 
+    // this function returns the path to the configuration file (config.yaml)
     pub fn config_file() -> Result<PathBuf> {
         Self::local_path(CONFIG_FILE_NAME)
     }
 
+    // this function returns the path to the roles file (roles.yaml)
     pub fn roles_file() -> Result<PathBuf> {
         let env_name = get_env_name("roles_file");
         env::var(env_name).map_or_else(
@@ -258,20 +295,24 @@ impl Config {
         )
     }
 
+    // this function returns the path to the messages file (messages.md)
     pub fn messages_file() -> Result<PathBuf> {
         Self::local_path(MESSAGES_FILE_NAME)
     }
 
+    // this function returns the path to the directory where session files are stored (sessions)
     pub fn sessions_dir() -> Result<PathBuf> {
         Self::local_path(SESSIONS_DIR_NAME)
     }
 
+    // This function constructs the path to a session file based on the session name
     pub fn session_file(name: &str) -> Result<PathBuf> {
         let mut path = Self::sessions_dir()?;
         path.push(&format!("{name}.yaml"));
         Ok(path)
     }
 
+    // this function lets us, set the role for the current configuration based on the provided name
     pub fn set_role(&mut self, name: &str) -> Result<()> {
         let role = self.retrieve_role(name)?;
         if let Some(session) = self.session.as_mut() {
@@ -282,6 +323,7 @@ impl Config {
         Ok(())
     }
 
+    // this function is for clearing the current role from the configuration
     pub fn clear_role(&mut self) -> Result<()> {
         if let Some(session) = self.session.as_mut() {
             session.update_role(None)?;
@@ -291,6 +333,7 @@ impl Config {
         Ok(())
     }
 
+    // this function returns the current state of the configuration
     pub fn get_state(&self) -> State {
         if let Some(session) = &self.session {
             if session.is_empty() {
@@ -309,10 +352,12 @@ impl Config {
         }
     }
 
+    // this is a getter method for temperature
     pub fn get_temperature(&self) -> Option<f64> {
         self.temperature
     }
 
+    // this function lets us set the temperature for the configuration
     pub fn set_temperature(&mut self, value: Option<f64>) -> Result<()> {
         self.temperature = value;
         if let Some(session) = self.session.as_mut() {
@@ -321,6 +366,7 @@ impl Config {
         Ok(())
     }
 
+    // this function echoes the messages based on the current configuration state
     pub fn echo_messages(&self, input: &Input) -> String {
         if let Some(session) = self.session.as_ref() {
             session.echo_messages(input)
@@ -331,7 +377,9 @@ impl Config {
         }
     }
 
+    // this function is for build messages based on the current configuration state
     pub fn build_messages(&self, input: &Input) -> Result<Vec<Message>> {
+        // If a session is active, we build messages from the session
         let messages = if let Some(session) = self.session.as_ref() {
             session.build_emssages(input)
         } else if let Some(role) = self.role.as_ref() {
@@ -343,6 +391,7 @@ impl Config {
         Ok(messages)
     }
 
+    // this function sets the "text wrapping mode" for the configuration
     pub fn set_wrap(&mut self, value: &str) -> Result<()> {
         if value == "no" {
             self.wrap = None;
@@ -357,9 +406,12 @@ impl Config {
         Ok(())
     }
 
+    // this function is for setting the model for the configuration based on the provided value
     pub fn set_model(&mut self, value: &str) -> Result<()> {
+        // retrieving a list of available models
         let models = list_models(self);
         let model = Model::find(&models, value);
+        // attempting to find the model by matching
         match model {
             None => bail!("Invalid model '{}'", value),
             Some(model) => {
@@ -372,7 +424,10 @@ impl Config {
         }
     }
 
+    // this function generates system information for the configuration
     pub fn sys_info(&self) -> Result<String> {
+        // this collects various configuration settings and paths,
+        // such as model ID, temperature, file paths, and boolean settings
         let display_path = |path: &Path| path.display().to_string();
         let temperature = self
             .temperature
@@ -386,6 +441,7 @@ impl Config {
         } else {
             self.prelude.clone()
         };
+        // this constructs a formatted string containing the configuration information
         let items = vec![
             ("model", self.model.id()),
             ("temperature", temperature),
@@ -411,6 +467,7 @@ impl Config {
         Ok(output)
     }
 
+    // retrieves information about the current role in the configuration
     pub fn role_info(&self) -> Result<String> {
         if let Some(role) = &self.role {
             role.info()

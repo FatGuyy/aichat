@@ -12,11 +12,14 @@ pub use self::tiktoken::cl100k_base_singleton;
 
 use sha2::{Digest, Sha256};
 
+// this function returns the current local time in RFC 3339 format with seconds precision
 pub fn now() -> String {
     let now = chrono::Local::now();
     now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
 }
 
+// this function constructs an environment variable name by
+// combining the crate name and the given key, both converted to uppercase
 pub fn get_env_name(key: &str) -> String {
     format!(
         "{}_{}",
@@ -25,28 +28,34 @@ pub fn get_env_name(key: &str) -> String {
     )
 }
 
-/// Split text to tokens
+// this function tokenizes the input text using a pre-trained tokenizer i.e. Split text to tokens
 pub fn tokenize(text: &str) -> Vec<String> {
     let tokens = cl100k_base_singleton()
         .lock()
         .encode_with_special_tokens(text);
+    // Decoding the tokenized bytes back into strings
     let token_bytes: Vec<Vec<u8>> = tokens
         .into_iter()
         .map(|v| cl100k_base_singleton().lock().decode_bytes(vec![v]))
+        //  collecting the tokens into a vector
         .collect();
+    // declaring the output vector
     let mut output = vec![];
     let mut current_bytes = vec![];
     for bytes in token_bytes {
+        // Splits the text into tokens, handling characters properly
         current_bytes.extend(bytes);
         if let Ok(v) = std::str::from_utf8(&current_bytes) {
+            // pushing the bytes into output string
             output.push(v.to_string());
             current_bytes.clear();
         }
     }
+    // returning the output
     output
 }
 
-/// Count how many tokens a piece of text needs to consume
+// this function counts how many tokens a piece of text needs to consume
 pub fn count_tokens(text: &str) -> usize {
     cl100k_base_singleton()
         .lock()
@@ -54,7 +63,10 @@ pub fn count_tokens(text: &str) -> usize {
         .len()
 }
 
+// this function determines whether a light theme should be used based on the
+// background color provided in the colorfgbg string
 pub fn light_theme_from_colorfgbg(colorfgbg: &str) -> Option<bool> {
+    // Spliting the colorfgbg string by ';' to extract the background color component
     let parts: Vec<_> = colorfgbg.split(';').collect();
     let bg = match parts.len() {
         2 => &parts[1],
@@ -64,14 +76,18 @@ pub fn light_theme_from_colorfgbg(colorfgbg: &str) -> Option<bool> {
         }
     };
     let bg = bg.parse::<u8>().ok()?;
+    // parsing the background color to an ANSI 256 color code and converts it to RGB
     let (r, g, b) = ansi_colours::rgb_from_ansi256(bg);
 
+    // calculating the luminance of the background color
     let v = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
-
     let light = v > 128.0;
+
+    // returns true the v is above certain threshold, indicating light theme
     Some(light)
 }
 
+// this function initializes a Tokio runtime with all features enabled for the current thread
 pub fn init_tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     use anyhow::Context;
     tokio::runtime::Builder::new_current_thread()
@@ -80,6 +96,7 @@ pub fn init_tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
         .with_context(|| "Failed to init tokio")
 }
 
+// this function computes the SHA-256 hash of the input string and returns it as a hexadecimal string
 pub fn sha256sum(input: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input);

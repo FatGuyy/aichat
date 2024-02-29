@@ -10,16 +10,19 @@ use std::collections::HashMap;
 // Here we implement the Completer trait for ReplCompleter
 // It generates suggestions based on user input
 impl Completer for ReplCompleter {
-    // This method analyzes the input line,
+    // this function analyzes the input line,
     // determines the current command and arguments, and generates appropriate suggestions
-    // This filters available REPL commands based on the current state and inpu
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+        // initializing an empty vector suggestions to store the generated suggestions
         let mut suggestions = vec![];
         let line = &line[0..pos];
+        // splits the line into individual parts
         let mut parts = split_line(line);
+        // If the parts list is empty, we return an empty vector of suggestions
         if parts.is_empty() {
             return suggestions;
         }
+        // the first part of the input line starts with ":::#", we remove it
         if parts[0].0 == r#":::"# {
             parts.remove(0);
         }
@@ -28,14 +31,17 @@ impl Completer for ReplCompleter {
         if parts_len == 0 {
             return suggestions;
         }
+        // extracts the command(cmd) and its start position(cmd_start) from the first part
         let (cmd, cmd_start) = parts[0];
 
+        // if the command doesn't start with a dot ('.'), we return an empty vector of suggestions
         if !cmd.starts_with('.') {
             return suggestions;
         }
 
         let state = self.config.read().get_state();
 
+        // This filters available repl commands based on the current state and input
         let commands: Vec<_> = self
             .commands
             .iter()
@@ -65,6 +71,7 @@ impl Completer for ReplCompleter {
             )
         }
 
+        // if there are no suggestions generated from the arguments, we create suggestions for available repl commands
         if suggestions.is_empty() {
             let span = Span::new(cmd_start, pos);
             suggestions.extend(commands.iter().map(|cmd| {
@@ -79,6 +86,7 @@ impl Completer for ReplCompleter {
                 create_suggestion(name, Some(description.to_string()), span)
             }))
         }
+        // we return the suggestions
         suggestions
     }
 }
@@ -127,10 +135,14 @@ fn create_suggestion(value: String, description: Option<String>, span: Span) -> 
 
 // This function parses the input line into individual parts, separating commands and arguments
 fn split_line(line: &str) -> Vec<(&str, usize)> {
+    // initializing an empty vector parts to store parts of the input
     let mut parts = vec![];
     let mut part_start = None;
+    // iterates through the characters of the input line
     for (i, ch) in line.char_indices() {
+        // If the character is a space, we check if there's a current part being collected
         if ch == ' ' {
+            // If so, we push the substring from the start index to the current index
             if let Some(s) = part_start {
                 parts.push((&line[s..i], s));
                 part_start = None;
@@ -139,11 +151,15 @@ fn split_line(line: &str) -> Vec<(&str, usize)> {
             part_start = Some(i)
         }
     }
+    // checking if there's still a part being collected
     if let Some(s) = part_start {
+        // pushhing the remaining substring from the start index to the end into the vector
         parts.push((&line[s..], s));
     } else {
+        // else, adding an empty part to the parts vector
         parts.push(("", line.len()))
     }
+    // returning the vectors
     parts
 }
 

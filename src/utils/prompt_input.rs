@@ -1,8 +1,9 @@
 use inquire::{required, validator::Validation, Text};
 
-const MSG_REQUIRED: &str = "This field is required";
-const MSG_OPTIONAL: &str = "Optional field - Press ↵ to skip";
+const MSG_REQUIRED: &str = "This field is required"; // message indicating that a field is required
+const MSG_OPTIONAL: &str = "Optional field - Press ↵ to skip"; // message indicating that a field is optional and can be skipped by pressing Enter
 
+// this function prompts the user to input a string
 pub fn prompt_input_string(desc: &str, required: bool) -> anyhow::Result<String> {
     let mut text = Text::new(desc);
     if required {
