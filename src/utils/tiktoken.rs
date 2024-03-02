@@ -14,15 +14,19 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::task;
 
+// this function initializes a CoreBPE object from the cl100k_base.tiktoken file
 pub fn cl100k_base() -> Result<CoreBPE> {
+    // reading the file
     let cl100k_base = include_str!("../../assets/cl100k_base.tiktoken");
 
     let mut encoder = HashMap::default();
+    // parsing each line to extract the token and its rank
     for line in cl100k_base.lines() {
         let mut parts = line.split(' ');
         let raw = parts.next().unwrap();
         let token = &general_purpose::STANDARD.decode(raw)?;
         let rank: usize = parts.next().unwrap().parse().unwrap();
+        // inserting the token and rank in the encoder
         encoder.insert(token.clone(), rank);
     }
 
@@ -33,6 +37,7 @@ pub fn cl100k_base() -> Result<CoreBPE> {
     special_tokens.insert(String::from("<|fim_suffix|>"), 100260);
     special_tokens.insert(String::from("<|endofprompt|>"), 100276);
 
+    // making the new CoreBPE instance, with the content from the file special tokens
     CoreBPE::new(
         encoder,
         special_tokens,
@@ -40,23 +45,29 @@ pub fn cl100k_base() -> Result<CoreBPE> {
     )
 }
 
+// this function returns a thread-safe singleton instance of the CoreBPE object created by cl100k_base
 pub fn cl100k_base_singleton() -> Arc<Mutex<CoreBPE>> {
+    // ensuring that only one instance of the CoreBPE object is created and is shared across different threads
     lazy_static! {
         static ref CL100K_BASE: Arc<Mutex<CoreBPE>> = Arc::new(Mutex::new(cl100k_base().unwrap()));
     }
+    // returning the clone of the instance
     CL100K_BASE.clone()
 }
 
+// this function decodes a sequence of token IDs into a string using the provided CoreBPE object
 pub async fn decode_async(bpe: Arc<Mutex<CoreBPE>>, tokens: Vec<usize>) -> Result<String> {
     task::spawn_blocking(move || bpe.lock().decode(tokens)).await?
 }
 
+// this asynchronous function encodes a string into a sequence of token IDs using the provided CoreBPE object
 pub async fn encode_async(bpe: Arc<Mutex<CoreBPE>>, text: &str) -> Result<Vec<usize>> {
     let text = text.to_string();
     let r = task::spawn_blocking(move || bpe.lock().encode_with_special_tokens(&text)).await?;
     Ok(r)
 }
 
+// this function implements the algorithm, which merges adjacent byte pairs based on their rank
 fn _byte_pair_merge(piece: &[u8], ranks: &HashMap<Vec<u8>, usize>) -> Vec<std::ops::Range<usize>> {
     let mut parts: Vec<_> = (0..piece.len()).map(|i| i..i + 1).collect();
 
@@ -91,6 +102,7 @@ fn _byte_pair_merge(piece: &[u8], ranks: &HashMap<Vec<u8>, usize>) -> Vec<std::o
     parts
 }
 
+// This function encodes a piece of text into a sequence of token IDs using the above algorithm
 pub fn byte_pair_encode(piece: &[u8], ranks: &HashMap<Vec<u8>, usize>) -> Vec<usize> {
     if piece.len() == 1 {
         return vec![ranks[piece]];
@@ -101,6 +113,7 @@ pub fn byte_pair_encode(piece: &[u8], ranks: &HashMap<Vec<u8>, usize>) -> Vec<us
         .collect()
 }
 
+// this function splits a piece of text into subwords based on byte pair encoding
 pub fn byte_pair_split<'a>(piece: &'a [u8], ranks: &HashMap<Vec<u8>, usize>) -> Vec<&'a [u8]> {
     if piece.len() == 1 {
         return vec![piece];
@@ -139,6 +152,7 @@ pub fn byte_pair_split<'a>(piece: &'a [u8], ranks: &HashMap<Vec<u8>, usize>) -> 
 // The current implementation ends up doing a lot of hashing of bytes. In theory, this could be made
 // to be hashing of two-tuples of ints, which looks like it may also be a couple percent faster.
 
+// this struct represents the core components needed for byte pair encoding
 pub struct CoreBPE {
     encoder: HashMap<Vec<u8>, usize>,
     special_tokens_encoder: HashMap<String, usize>,
@@ -150,14 +164,17 @@ pub struct CoreBPE {
 }
 
 impl CoreBPE {
+    // this function returns a reference to the regular expression used for splitting text during the encoding process
     fn _get_regex(&self) -> &Regex {
         &self.regex
     }
 
+    // this function returns a reference to the regular expression used specifically for identifying special tokens during encoding
     fn _get_special_regex(&self) -> &Regex {
         &self.special_regex
     }
 
+    // this function decodes a sequence of token IDs into a byte sequence
     fn _decode_native(&self, tokens: &[usize]) -> Vec<u8> {
         let mut ret = Vec::with_capacity(tokens.len() * 2);
         for token in tokens {
@@ -170,6 +187,7 @@ impl CoreBPE {
         ret
     }
 
+    // this function encodes a text string into a sequence of token IDs
     fn _encode_ordinary_native(&self, text: &str) -> Vec<usize> {
         // This is the core of the encoding logic; the other functions in here
         // just make things complicated :-)
@@ -186,6 +204,7 @@ impl CoreBPE {
         ret
     }
 
+    // this function encodes a text into token IDs while handling special tokens
     fn _encode_native(&self, text: &str, allowed_special: &HashSet<&str>) -> (Vec<usize>, usize) {
         let special_regex = self._get_special_regex();
         let regex = self._get_regex();
@@ -193,7 +212,9 @@ impl CoreBPE {
 
         let mut start = 0;
         let mut last_piece_token_len = 0;
+        // iterating over the text
         loop {
+            // identifying special tokens using the special regular expressions
             let mut next_special;
             let mut start_find = start;
             loop {
@@ -242,6 +263,7 @@ impl CoreBPE {
         (ret, last_piece_token_len)
     }
 
+    // this function adjusts the length of the last piece token based on unstable token splits
     fn _increase_last_piece_token_len(
         &self,
         tokens: Vec<usize>,
@@ -255,6 +277,8 @@ impl CoreBPE {
         // pattern. This can e.g. cause "\n" + " " to become "\n \n".
         // Here is a quick and dirty fix:
         {
+            // checking if the last token is composed entirely of whitespace characters
+            // and adjusting the length accordingly to prevent merging across unstable regex splits
             let token_is_all_space = |token| {
                 self.decoder
                     .get(token)
@@ -281,6 +305,7 @@ impl CoreBPE {
         (tokens, last_piece_token_len)
     }
 
+    // this function is responsible for encoding text into token IDs while handling unstable token splits
     fn _encode_unstable_native(
         &self,
         text: &str,
@@ -398,14 +423,17 @@ impl CoreBPE {
     }
 }
 
+// 
 impl CoreBPE {
+    // this is the constructor method for CoreBPE
     fn new(
         encoder: HashMap<Vec<u8>, usize>,
         special_tokens_encoder: HashMap<String, usize>,
         pattern: &str,
     ) -> Result<Self> {
         let regex = Regex::new(pattern)?;
-
+        
+        // regular expression patterns for the main tokens and special tokens 
         let special_regex = {
             let _parts = special_tokens_encoder
                 .keys()
@@ -414,6 +442,7 @@ impl CoreBPE {
             Regex::new(&_parts.join("|"))?
         };
 
+        // the decoder hashmap, it is created by swapping the keys and values of the encoder hashmap to map token IDs to their corresponding byte sequences
         let decoder: HashMap<usize, Vec<u8>> =
             encoder.iter().map(|(k, v)| (*v, k.clone())).collect();
 
@@ -443,14 +472,17 @@ impl CoreBPE {
     // Encoding
     // ====================
 
+    // this function is used for encoding text without considering special tokens
     pub fn encode_ordinary(&self, text: &str) -> Vec<usize> {
         self._encode_ordinary_native(text)
     }
 
+    // this function is used for encoding text while considering only the special tokens specified in the allowed_special set
     pub fn encode(&self, text: &str, allowed_special: HashSet<&str>) -> Vec<usize> {
         self._encode_native(text, &allowed_special).0
     }
 
+    // this function is used for encoding text with all special tokens allowed
     pub fn encode_with_special_tokens(&self, text: &str) -> Vec<usize> {
         let allowed_special = self
             .special_tokens_encoder
@@ -460,6 +492,7 @@ impl CoreBPE {
         self._encode_native(text, &allowed_special).0
     }
 
+    // This function encodes a sequence of bytes into token IDs
     fn _encode_bytes(&self, bytes: &[u8]) -> Vec<usize> {
         match std::str::from_utf8(bytes) {
             Ok(text) => self._encode_ordinary_native(text),
@@ -486,6 +519,7 @@ impl CoreBPE {
     }
 
     #[allow(dead_code)]
+    // This function encodes text into token IDs
     fn encode_with_unstable(
         &self,
         text: &str,
@@ -495,6 +529,7 @@ impl CoreBPE {
     }
 
     #[allow(dead_code)]
+    // this function encodes a single token into its corresponding token ID
     fn encode_single_token(&self, piece: &[u8]) -> Result<usize> {
         if let Some(token) = self.encoder.get(piece).copied() {
             return Ok(token);
@@ -508,7 +543,9 @@ impl CoreBPE {
     }
 
     #[allow(dead_code)]
+    // this function encodes a single piece into token IDs
     fn encode_single_piece(&self, piece: &[u8]) -> Vec<usize> {
+        // checking if the piece exists in the main encoder
         if let Some(token) = self.encoder.get(piece) {
             return vec![*token];
         }
@@ -519,10 +556,12 @@ impl CoreBPE {
     // Decoding
     // ====================
 
+    // function decodes token IDs into a sequence of bytes
     pub fn decode_bytes(&self, tokens: Vec<usize>) -> Vec<u8> {
         self._decode_native(&tokens)
     }
 
+    // this function decodes token IDs into a UTF-8 encoded string
     pub fn decode(&self, tokens: Vec<usize>) -> Result<String> {
         match String::from_utf8(self._decode_native(&tokens)) {
             Ok(text) => Ok(text),
@@ -530,6 +569,7 @@ impl CoreBPE {
         }
     }
 
+    // this method decodes a single token ID into its corresponding byte sequence
     pub fn decode_single_token_bytes(&self, token: usize) -> Result<Vec<u8>> {
         if let Some(bytes) = self.decoder.get(&token) {
             return Ok(bytes.clone());
@@ -545,6 +585,7 @@ impl CoreBPE {
     // ====================
 
     #[allow(dead_code)]
+    // this function returns a cloned copy of the sorted token bytes stored in the sorted_token_bytes field of the CoreBPE struct
     fn token_byte_values(&self) -> Vec<Vec<u8>> {
         self.sorted_token_bytes.clone()
     }

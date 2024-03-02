@@ -476,33 +476,48 @@ impl Config {
         }
     }
 
+    // This function returns information about the current session
     pub fn session_info(&self) -> Result<String> {
+        // If a session exists
         if let Some(session) = &self.session {
+            //  we render the session using a Markdown renderer
             let render_options = self.get_render_options()?;
             let mut markdown_render = MarkdownRender::init(render_options)?;
+            //  return the result
             session.render(&mut markdown_render)
         } else {
+            // if there is no session found, we return an error
             bail!("No session")
         }
     }
 
+    // this function returns information about the current state
     pub fn info(&self) -> Result<String> {
+        // If a session exists
         if let Some(session) = &self.session {
+            // we return the exported information from the session
             session.export()
+            // If no session exists but a role exists
         } else if let Some(role) = &self.role {
+            // we return information about the role
             role.info()
         } else {
+            // else, we return system information
             self.sys_info()
         }
     }
 
+    // this function returns the last reply message
     pub fn last_reply(&self) -> &str {
+        // If a last message exists
         self.last_message
             .as_ref()
+            // returning the reply part of it
             .map(|(_, reply)| reply.as_str())
             .unwrap_or_default()
     }
 
+    // this function provides auto-completion options for the REPL
     pub fn repl_complete(&self, cmd: &str, args: &[&str]) -> Vec<String> {
         let (values, filter) = if args.len() == 1 {
             let values = match cmd {
@@ -541,15 +556,19 @@ impl Config {
             .collect()
     }
 
+    // this function updates the state based on the provided data
     pub fn update(&mut self, data: &str) -> Result<()> {
         let parts: Vec<&str> = data.split_whitespace().collect();
         if parts.len() != 2 {
+            // data must be in the format <key> <value>, else we return an error
             bail!("Usage: .set <key> <value>. If value is null, unset key.");
         }
         let key = parts[0];
         let value = parts[1];
         let unset = value == "null";
+        // Depending on the key, we update different aspects of the state
         match key {
+            // updating the temperature settings
             "temperature" => {
                 let value = if unset {
                     None
@@ -559,51 +578,65 @@ impl Config {
                 };
                 self.set_temperature(value)?;
             }
+            // updating the save settings
             "save" => {
                 let value = value.parse().with_context(|| "Invalid value")?;
                 self.save = value;
             }
+            // updating the highlight settings
             "highlight" => {
                 let value = value.parse().with_context(|| "Invalid value")?;
                 self.highlight = value;
             }
+            // setting the dry run boolean
             "dry_run" => {
                 let value = value.parse().with_context(|| "Invalid value")?;
                 self.dry_run = value;
             }
+            // updating the auto_copy setting
             "auto_copy" => {
                 let value = value.parse().with_context(|| "Invalid value")?;
                 self.auto_copy = value;
             }
+            // for all else keys, we return an error with the key as unknown
             _ => bail!("Unknown key `{key}`"),
         }
         Ok(())
     }
 
+    // this function is for starting a new session
     pub fn start_session(&mut self, session: Option<&str>) -> Result<()> {
+        // If there is already a session running, we return an error
         if self.session.is_some() {
             bail!(
                 "Already in a session, please run '.exit session' first to exit the current session."
             );
         }
         match session {
+            // If no session name is given, we create a temporary session with a unique name
             None => {
                 let session_file = Self::session_file(TEMP_SESSION_NAME)?;
+                // trying to remove the old session information
                 if session_file.exists() {
                     remove_file(session_file)
                         .with_context(|| "Failed to clean previous session")?;
                 }
+                // making the new session
                 self.session = Some(Session::new(
                     TEMP_SESSION_NAME,
                     self.model.clone(),
                     self.role.clone(),
                 ));
             }
+            // If session name is given
             Some(name) => {
+                //  we check if a session file exists for that name
                 let session_path = Self::session_file(name)?;
                 if !session_path.exists() {
+                    // If the session file exists, we load the session from it
                     self.session = Some(Session::new(name, self.model.clone(), self.role.clone()));
                 } else {
+                    // else we just create a new session for that session name
                     let session = Session::load(name, &session_path)?;
                     let model = session.model().to_string();
                     self.temperature = session.temperature();
@@ -612,9 +645,11 @@ impl Config {
                 }
             }
         }
+        // session is empty and there is a last message
         if let Some(session) = self.session.as_mut() {
             if session.is_empty() {
                 if let Some((input, output)) = &self.last_message {
+                    // we ask the user, if to incorporate the last question and answer into the session
                     let ans = Confirm::new(
                         "Start a session that incorporates the last question and answer?",
                     )
@@ -627,22 +662,32 @@ impl Config {
                 }
             }
         }
+        // return
         Ok(())
     }
 
+    // this function ends the current session
     pub fn end_session(&mut self) -> Result<()> {
+        // if a session exists
         if let Some(mut session) = self.session.take() {
+            // we clear the last message
             self.last_message = None;
+            // reseting the temperature setting
             self.temperature = self.default_temperature;
+            // Checking if the session should be saved
             if session.should_save() {
+                // prompting user to confirm saving the session
                 let ans = Confirm::new("Save session?")
                     .with_default(false)
                     .prompt()
                     .map_err(prompt_op_err)?;
+                // if user says no, we return
                 if !ans {
                     return Ok(());
                 }
+                // if user says yes
                 let mut name = session.name().to_string();
+                // we prompt for the session name (if it's temporary)
                 if session.is_temp() {
                     name = Text::new("Session name:")
                         .with_default(&name)
@@ -658,19 +703,23 @@ impl Config {
                         format!("Failed to create session_dir '{}'", sessions_dir.display())
                     })?;
                 }
+                //  save the session to a file
                 session.save(&session_path)?;
             }
         }
         Ok(())
     }
 
+    // This function is for listing all available sessions
     pub fn list_sessions(&self) -> Vec<String> {
+        // Finding and reading the sessions directory
         let sessions_dir = match Self::sessions_dir() {
             Ok(dir) => dir,
             Err(_) => return vec![],
         };
         match read_dir(sessions_dir) {
             Ok(rd) => {
+                //  extracting the names of session files
                 let mut names = vec![];
                 for entry in rd.flatten() {
                     let name = entry.file_name();
@@ -679,30 +728,39 @@ impl Config {
                     }
                 }
                 names.sort_unstable();
+                // returning all the names
                 names
             }
+            // if there is an error, we return and empty vector
             Err(_) => vec![],
         }
     }
 
+    // this function determines the rendering options based on the current state
     pub fn get_render_options(&self) -> Result<RenderOptions> {
+        // checking if highlighting is enabled
         let theme = if self.highlight {
+            // Determine the theme mode
             let theme_mode = if self.light_theme { "light" } else { "dark" };
             let theme_filename = format!("{theme_mode}.tmTheme");
             let theme_path = Self::local_path(&theme_filename)?;
             if theme_path.exists() {
+                // Attempts to load a theme file
                 let theme = ThemeSet::get_theme(&theme_path)
                     .with_context(|| format!("Invalid theme at {}", theme_path.display()))?;
                 Some(theme)
             } else {
+                // if theme path doesn't exist, we check for the given theme
                 let theme = if self.light_theme {
                     bincode::deserialize_from(LIGHT_THEME).expect("Invalid builtin light theme")
                 } else {
                     bincode::deserialize_from(DARK_THEME).expect("Invalid builtin dark theme")
                 };
+                // return the theme wrapped in a Result
                 Some(theme)
             }
         } else {
+            // If no highlight is given, we return None
             None
         };
         let wrap = if stdout().is_terminal() {
@@ -710,22 +768,33 @@ impl Config {
         } else {
             None
         };
+        // constructing and returning RenderOptions with the determined theme, wrap option
         Ok(RenderOptions::new(theme, wrap, self.wrap_code))
     }
 
+    // this function generates the left part of the prompt based on templates and current context
     pub fn render_prompt_left(&self) -> String {
+        // generate a context (Hashmap)
         let variables = self.generate_prompt_context();
+        // render the left prompt using the makde context
         render_prompt(&self.left_prompt, &variables)
     }
 
+    // this function generates the right part of the prompt based on templates and current context
     pub fn render_prompt_right(&self) -> String {
+        // generate a context (Hashmap)
         let variables = self.generate_prompt_context();
+        // render the left prompt using the makde context
         render_prompt(&self.right_prompt, &variables)
     }
 
+    // this function prepares data based on the input, different based on whether the operation should be streamed or not
     pub fn prepare_send_data(&self, input: &Input, stream: bool) -> Result<SendData> {
+        // building messages from the input
         let messages = self.build_messages(input)?;
+        // we check if the total tokens of the messages exceed the model's limit
         self.model.max_tokens_limit(&messages)?;
+        // return the built messages in SendData method
         Ok(SendData {
             messages,
             temperature: self.get_temperature(),
@@ -733,17 +802,24 @@ impl Config {
         })
     }
 
+    // this function calculates and prints the total token count of the input without actually sending it
     pub fn maybe_print_send_tokens(&self, input: &Input) {
         if self.dry_run {
+            // building messages from the input
             if let Ok(messages) = self.build_messages(input) {
+                // get the max tokens
                 let tokens = self.model.total_tokens(&messages);
+                // Print the token count
                 println!(">>> This message consumes {tokens} tokens. <<<");
             }
         }
     }
 
+    // this function generates a context for rendering prompts
     fn generate_prompt_context(&self) -> HashMap<&str, String> {
+        // a HashMap for storing the key-value pairs representing various settings and states
         let mut output = HashMap::new();
+        // inserting various key-value pairs in the hashmap
         output.insert("model", self.model.id());
         output.insert("client_name", self.model.client_name.clone());
         output.insert("model_name", self.model.name.clone());
@@ -781,6 +857,7 @@ impl Config {
             output.insert("user_messages_len", session.user_messages_len().to_string());
         }
 
+        // highlighting is enabled, we add ANSI color codes to the context
         if self.highlight {
             output.insert("color.reset", "\u{1b}[0m".to_string());
             output.insert("color.black", "\u{1b}[30m".to_string());
@@ -803,12 +880,17 @@ impl Config {
             output.insert("color.light_gray", "\u{1b}[97m".to_string());
         }
 
+        // returning the output
         output
     }
 
+    // this function opens the message file for appending messages
     fn open_message_file(&self) -> Result<File> {
+        // getting the message file path
         let path = Self::messages_file()?;
+        // ensuring the path exists
         ensure_parent_exists(&path)?;
+        // we open the file in append mode, and/or create it if it doesn't exist
         OpenOptions::new()
             .create(true)
             .append(true)
@@ -816,10 +898,13 @@ impl Config {
             .with_context(|| format!("Failed to create/append {}", path.display()))
     }
 
+    // this function loads the configuration from a yaml file located at the specified config_path
     fn load_config(config_path: &Path) -> Result<Self> {
+        // reading the content of the file
         let ctx = || format!("Failed to load config at {}", config_path.display());
         let content = read_to_string(config_path).with_context(ctx)?;
 
+        // deserializing context into Config
         let config: Self = serde_yaml::from_str(&content)
             .map_err(|err| {
                 let err_msg = err.to_string();
@@ -831,31 +916,41 @@ impl Config {
             })
             .with_context(ctx)?;
 
+        // we return the resulting configuration
         Ok(config)
     }
 
+    // this function loads roles from a yaml file and sets the roles field of the struct
     fn load_roles(&mut self) -> Result<()> {
+        // get the path to the roles file
         let path = Self::roles_file()?;
+        // if path does not exist, we return
         if !path.exists() {
             return Ok(());
         }
+        // read the content of the file
         let content = read_to_string(&path)
             .with_context(|| format!("Failed to load roles at {}", path.display()))?;
+        // deserialize it into a vector of Role structs
         let roles: Vec<Role> =
             serde_yaml::from_str(&content).with_context(|| "Invalid roles config")?;
         self.roles = roles;
         Ok(())
     }
 
+    // This function sets up the model using the provided model ID or selecting the first available model
     fn setup_model(&mut self) -> Result<()> {
         let model = match &self.model_id {
+            // some model is found with the given id
             Some(v) => v.clone(),
             None => {
+                // If no models are available, we return an error
                 let models = list_models(self);
                 if models.is_empty() {
                     bail!("No available model");
                 }
 
+                // return the model id
                 models[0].id()
             }
         };
@@ -863,24 +958,35 @@ impl Config {
         Ok(())
     }
 
+    // This function checks if the NO_COLOR environment variable is set and sets highlight according to it
     fn setup_highlight(&mut self) {
+        // getting the value of the NO_COLOR variable
         if let Ok(value) = env::var("NO_COLOR") {
+            // delcaring another variable for no_color
             let mut no_color = false;
+            // we set the new variable to the value in configuration
             set_bool(&mut no_color, &value);
+            // if no_color is true, we make the highlight false
             if no_color {
                 self.highlight = false;
             }
         }
     }
 
+    // this function sets up the light theme based on environment variables
     fn setup_light_theme(&mut self) -> Result<()> {
+        // checking if the light_theme field is already set to true
         if self.light_theme {
             return Ok(());
         }
+        // checking environment variables for configuration
         if let Ok(value) = env::var(get_env_name("light_theme")) {
             set_bool(&mut self.light_theme, &value);
             return Ok(());
-        } else if let Ok(value) = env::var("COLORFGBG") {
+        }
+        // if light_theme is not set and environment variables are not found
+        else if let Ok(value) = env::var("COLORFGBG") {
+            // we determine  the light theme based on the COLORFGBG environment variable
             if let Some(light) = light_theme_from_colorfgbg(&value) {
                 self.light_theme = light
             }
@@ -888,20 +994,28 @@ impl Config {
         Ok(())
     }
 
+    // this function ensures compatibility with old configurations with the new one
     fn compat_old_config(&mut self, config_path: &PathBuf) -> Result<()> {
+        // reading the content of the configuration file
         let content = read_to_string(config_path)?;
+        // Parsing the yaml into a json value
         let value: serde_json::Value = serde_yaml::from_str(&content)?;
+        // checking if configuration already contains a field named CLIENTS_FIELD, impling that configuration is already in the new format
         if value.get(CLIENTS_FIELD).is_some() {
             return Ok(());
         }
 
+        // Retrieving the value of the "model" field from the config
         if let Some(model_name) = value.get("model").and_then(|v| v.as_str()) {
+            // model name starts with "gpt", we set the model_id field in the struct as per new format
             if model_name.starts_with("gpt") {
                 self.model_id = Some(format!("{}:{}", OpenAIClient::NAME, model_name));
             }
         }
 
+        // retrieving the first client configuration from clients in struct
         if let Some(ClientConfig::OpenAIConfig(client_config)) = self.clients.get_mut(0) {
+            // and then we update various fields of the client configurations
             if let Some(api_key) = value.get("api_key").and_then(|v| v.as_str()) {
                 client_config.api_key = Some(api_key.to_string())
             }
@@ -926,6 +1040,7 @@ impl Config {
     }
 }
 
+// This enum represents different keybinding modes (i.e. Emacs or Vim)
 #[derive(Debug, Clone, Deserialize, Default)]
 pub enum Keybindings {
     #[serde(rename = "emacs")]
@@ -935,6 +1050,7 @@ pub enum Keybindings {
     Vi,
 }
 
+// this block implements methods to check if the keybinding is Vi and to get string of the enum
 impl Keybindings {
     pub fn is_vi(&self) -> bool {
         matches!(self, Keybindings::Vi)
@@ -947,6 +1063,7 @@ impl Keybindings {
     }
 }
 
+// This enum represents different states of the application
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum State {
     Normal,
@@ -956,6 +1073,9 @@ pub enum State {
     Session,
 }
 
+// Below are some util function for this file
+
+// this function prompts the user to create a new configuration file if it doesn't exist
 fn create_config_file(config_path: &Path) -> Result<()> {
     let ans = Confirm::new("No config file, create a new one?")
         .with_default(true)
@@ -989,6 +1109,7 @@ fn create_config_file(config_path: &Path) -> Result<()> {
     Ok(())
 }
 
+// This function ensures that the parent directory of a given file path exists
 fn ensure_parent_exists(path: &Path) -> Result<()> {
     if path.exists() {
         return Ok(());
@@ -1007,6 +1128,7 @@ fn ensure_parent_exists(path: &Path) -> Result<()> {
     Ok(())
 }
 
+// This function sets a boolean variable based on a string value
 fn set_bool(target: &mut bool, value: &str) {
     match value {
         "1" | "true" => *target = true,
@@ -1015,7 +1137,9 @@ fn set_bool(target: &mut bool, value: &str) {
     }
 }
 
+// Below are the functions which configure logging based on whether the application is in debug mode or not
 #[cfg(debug_assertions)]
+// in this function logging set up to write debug logs to a file named "debug.log".
 fn setup_logger() -> Result<()> {
     use simplelog::{LevelFilter, WriteLogger};
     let file = std::fs::File::create(Config::local_path("debug.log")?)?;
