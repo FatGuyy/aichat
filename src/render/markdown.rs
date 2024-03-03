@@ -8,8 +8,11 @@ use syntect::parsing::SyntaxSet;
 use syntect::{easy::HighlightLines, parsing::SyntaxReference};
 
 /// Comes from https://github.com/sharkdp/bat/raw/5e77ca37e89c873e4490b42ff556370dc5c6ba4f/assets/syntaxes.bin
+// This contains the binary data of syntaxes used for syntax highlighting.
+// It's loaded from an external file using include_bytes!
 const SYNTAXES: &[u8] = include_bytes!("../../assets/syntaxes.bin");
 
+// This macro is used to create a lazily initialized static variable
 lazy_static! {
     static ref LANG_MAPS: HashMap<String, String> = {
         let mut m = HashMap::new();
@@ -19,6 +22,7 @@ lazy_static! {
     };
 }
 
+// this struct is reponsible for rendering in the Markdown format
 pub struct MarkdownRender {
     options: RenderOptions,
     syntax_set: SyntaxSet,
@@ -30,13 +34,17 @@ pub struct MarkdownRender {
 }
 
 impl MarkdownRender {
+    // this funciton deserializes the syntaxes from the binary dat
     pub fn init(options: RenderOptions) -> Result<Self> {
         let syntax_set: SyntaxSet = bincode::deserialize_from(SYNTAXES)
             .with_context(|| "MarkdownRender: invalid syntaxes binary")?;
 
+        // setting the code color from options
         let code_color = options.theme.as_ref().map(get_code_color);
+        // getting the Markdown syntax
         let md_syntax = syntax_set.find_syntax_by_extension("md").unwrap().clone();
         let line_type = LineType::Normal;
+        // determining the wrap_width based on the wrap field of the options
         let wrap_width = match options.wrap.as_deref() {
             None => None,
             Some(value) => match terminal::size() {
