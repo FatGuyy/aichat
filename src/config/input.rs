@@ -63,9 +63,9 @@ impl Input {
                     }
                 }
                 None => {
-                } else {
                     if is_image_ext(Path::new(&file_item)) {
                         medias.push(file_item)
+                    } else {
                         bail!("Unable to use file '{file_item}");
                     }
                 }
@@ -139,7 +139,7 @@ impl Input {
 }
 // this function formats the url
 pub fn resolve_data_url(data_urls: &HashMap<String, String>, data_url: String) -> String {
-    // If the data_url starts with "data:" 
+    // If the data_url starts with "data:"
     if data_url.starts_with("data:") {
         // we calculate the SHA-256 hash of the url
         let hash = sha256sum(&data_url);
@@ -183,8 +183,8 @@ fn is_image_ext(path: &Path) -> bool {
                 .any(|ext| *ext == v.to_string_lossy().to_lowercase())
         })
         .unwrap_or_default()
-        // we return true if the extension matches any of the image extensions
-        // else we return false
+    // we return true if the extension matches any of the image extensions
+    // else we return false
 }
 
 // this function reads an image file from the given path and encodes it into a url string
@@ -197,7 +197,7 @@ fn read_media_to_data_url<P: AsRef<Path>>(image_path: P) -> Result<String> {
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
 
-    // then, we encode the content of the image file using Base64(STANDARD) encoding 
+    // then, we encode the content of the image file using Base64(STANDARD) encoding
     // This encoded data will be included in the data URL
     let encoded_image = STANDARD.encode(buffer);
     // constructing the data url string using the MIME type and the Base64-encoded image data
